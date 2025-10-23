@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Highly Customizable Presentation Timer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Base styles and Variables */
+        :root {
+            /* Text color remains white unless flashing or overtime */
+            --timer-color: #FFFFFF; 
+            --bg-color: #000000;    /* Base Black Background */
+            
+            /* Fixed Initial Color */
+            --default-green-fill: #10b981; 
+            --default-light-text: #FFFFFF; /* White text for dark mode */
+
+            /* Fill colors, set from selectors */
+            --t1-solid-color: #f59e0b; /* Default Amber/Orange for T1 zone */
+            --t2-flash-color: #ef4444; /* Default Red for T2 zone */
+            --t3-flash-color: #ef4444; /* Fixed Red for Overtime Text Flash */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--default-light-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            /* Base transition for background color change */
+            transition: background-color 0.3s ease-in-out;
+            overflow: hidden; /* Prevent scroll */
+        }
+        
+        /* New CSS for SHARP flash effect on FONT */
+        .sharp-flash-slow {
+            animation: sharp-pulse-slow 2s step-end infinite; /* Updated to 2s */
+        }
+
+        .sharp-flash-fast {
+            animation: sharp-pulse-fast 1s step-end infinite; /* Updated to 1s */
+        }
+
+        /* Sharp pulsing keyframes for T1->T2 (slow) - FONT PULSE */
+        @keyframes sharp-pulse-slow {
+            50% { color: var(--t1-solid-color) !important; } 
+        }
+
+        /* Sharp pulsing keyframes for T2->0 (fast) - FONT PULSE */
+        @keyframes sharp-pulse-fast {
+            50% { color: var(--t2-flash-color) !important; } 
+        }
+
+        /* Overtime Flash: Fast (OT) - Sharp flash between White and Red */
+        .flash-ot-fast {
+            animation: flash-ot-fast 0.5s step-end infinite; /* New 0.5s flash */
+        }
+        @keyframes flash-ot-fast {
+            50% { color: var(--t3-flash-color) !important; }
+        }
+
+
+        /* Timer Display */
+        #main-time-display {
+            font-size: 15vw;
+            font-weight: 800;
+            color: var(--timer-color);
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+            transition: color 0.2s ease;
+            user-select: none;
+            cursor: pointer;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+
+        /* Overtime Status Message Styling */
+        #message-box {
+            position: absolute;
+            /* Top position is now calculated dynamically by JavaScript */
+            font-size: 4vw; /* Fixed, large size, independent of timer font size */
+            font-weight: 800;
+            color: #ef4444; /* Red */
+            z-index: 10;
+        }
+
+        /* Setup Panel Slide Effect */
+        #setup-panel {
+            transition: transform 0.3s ease-out;
+            transform: translateX(100%);
+            z-index: 1000;
+            pointer-events: none; /* Disabled by default */
+        }
+        #setup-panel.open {
+            transform: translateX(0);
+            pointer-events: auto;
+        }
+
+        /* Progress Bar Styling */
+        #progress-bar-container {
+            height: 48px;
+            z-index: 50;
+        }
+        
+        #progress-fill {
+            height: 100%;
+            /* Uses JS to set width based on time remaining */
+            background-color: var(--default-green-fill); 
+            position: absolute;
+            top: 0;
+            left: 0; /* Anchor to the left, shrinks from right to left */
+            transition: width 0.1s linear, background-color 0.2s ease;
+        }
+
+        /* Threshold Markers */
+        .threshold-marker {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 0.75rem;
+            transform: translateX(-50%);
+            z-index: 55;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.4);
+            border-radius: 4px;
+            cursor: grab;
+            transition: background-color 0.2s;
+        }
+        .threshold-marker:active { cursor: grabbing; }
+
+        .threshold-label {
+            position: absolute;
+            bottom: 60px; /* Positioned above the marker */
+            font-size: 0.85rem;
+            font-weight: 600;
+            transform: translateX(-50%);
+            z-index: 55;
+            white-space: nowrap;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen p-0" id="body-element">
+
+    <!-- 1. Main Timer View (Default View) -->
+    <div id="main-timer-view" class="flex-1 flex flex-col items-center justify-center p-4">
+        
+        <!-- Top Left Controls (Start/Pause/Reset) -->
+        <div class="absolute top-4 left-4 flex space-x-2 z-50">
+            <button id="top-start-btn"
+                    class="bg-green-600/70 hover:bg-green-700/80 text-white font-semibold py-2 px-3 rounded-lg shadow-lg transition duration-150 disabled:opacity-50"
+                    title="Start Timer">
+                Start
+            </button>
+            <button id="top-pause-btn" disabled
+                    class="bg-blue-500/70 hover:bg-blue-600/80 text-white font-semibold py-2 px-3 rounded-lg shadow-lg transition duration-150 disabled:opacity-50"
+                    title="Pause Timer">
+                Pause
+            </button>
+            <button id="top-reset-btn"
+                    class="bg-red-500/70 hover:bg-red-600/80 text-white font-semibold py-2 px-3 rounded-lg shadow-lg transition duration-150"
+                    title="Reset Timer">
+                Reset
+            </button>
+        </div>
+
+        <!-- Toggle Setup Button -->
+        <button id="toggle-setup-btn"
+                class="absolute top-4 right-4 bg-gray-900/50 hover:bg-gray-900/70 text-white p-3 rounded-full shadow-lg transition duration-150"
+                title="Toggle Settings Panel">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.82 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.82 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.82-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.82-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        </button>
+
+        <!-- Status Message (Fixed Position) -->
+        <div id="message-box" class="text-center font-black absolute" style="display:none;">
+            TIME EXPIRED
+        </div>
+        
+        <!-- Timer Display -->
+        <div id="main-time-display" 
+             class="font-mono font-black timer-display"
+             onclick="toggleFullScreen()">
+            15:00
+        </div>
+        
+        <!-- Font Size Controls -->
+        <div class="absolute bottom-24 left-4 flex space-x-2 z-50">
+            <button id="increase-font-btn"
+                    class="bg-gray-900/50 hover:bg-gray-900/70 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow-lg transition duration-150"
+                    title="Increase Font Size">
+                Size Up
+            </button>
+            <button id="decrease-font-btn"
+                    class="bg-gray-900/50 hover:bg-gray-900/70 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow-lg transition duration-150"
+                    title="Decrease Font Size">
+                Size Down
+            </button>
+        </div>
+        
+    </div>
+
+    <!-- 2. Progress Bar (Always at the bottom) -->
+    <div class="w-full h-16 bg-white shadow-inner flex items-center p-4 border-t border-gray-200 relative">
+        <div id="progress-bar-container" class="relative w-full h-12 bg-gray-200 rounded-full overflow-hidden">
+            
+            <div id="progress-fill"></div>
+
+            <!-- T1 Marker -->
+            <div id="t1-marker" class="threshold-marker"></div>
+            <span id="t1-label" class="threshold-label text-yellow-700"></span>
+
+            <!-- T2 Marker -->
+            <div id="t2-marker" class="threshold-marker"></div>
+            <span id="t2-label" class="threshold-label text-red-700"></span>
+            
+        </div>
+    </div>
+
+
+    <!-- 3. Setup Panel (Slide-out from Right) -->
+    <div id="setup-panel" 
+         class="fixed top-0 right-0 w-80 h-full bg-white shadow-2xl p-6 overflow-y-auto border-l border-gray-200 space-y-6">
+        
+        <div class="flex justify-between items-center pb-4 border-b">
+            <h2 class="text-2xl font-bold text-gray-800">Timer Settings</h2>
+            <button id="close-setup-btn" class="text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Time Inputs -->
+        <div class="space-y-4 pt-2 border-t">
+            <h3 class="text-lg font-bold text-gray-700">Set Time (Max 60:00)</h3>
+
+            <!-- Total Time Input -->
+            <div class="flex flex-col space-y-1">
+                <label class="block text-sm font-semibold text-gray-700">Total Time</label>
+                <div class="flex space-x-2">
+                    <input type="number" id="total-min-input" value="12" min="0" max="99"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-green-500 text-gray-900" placeholder="Min">
+                    <input type="number" id="total-sec-input" value="0" min="0" max="59"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-green-500 text-gray-900" placeholder="Sec">
+                </div>
+            </div>
+
+            <!-- T1 Threshold Input -->
+            <div class="flex flex-col space-y-1">
+                <label class="block text-sm font-semibold text-gray-700 text-yellow-700">T1 Threshold</label>
+                <div class="flex space-x-2">
+                    <input type="number" id="t1-min-input" value="2" min="0" max="99"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-yellow-500 text-gray-900" placeholder="Min">
+                    <input type="number" id="t1-sec-input" value="0" min="0" max="59"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-yellow-500 text-gray-900" placeholder="Sec">
+                </div>
+            </div>
+
+            <!-- T2 Threshold Input -->
+            <div class="flex flex-col space-y-1">
+                <label class="block text-sm font-semibold text-gray-700 text-red-700">T2 Threshold</label>
+                <div class="flex space-x-2">
+                    <input type="number" id="t2-min-input" value="0" min="0" max="99"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-red-500 text-gray-900" placeholder="Min">
+                    <input type="number" id="t2-sec-input" value="30" min="0" max="59"
+                           class="w-1/2 p-2 border rounded-lg text-sm text-center shadow-sm focus:ring-red-500 text-gray-900" placeholder="Sec">
+                </div>
+            </div>
+            
+            <p class="text-xs text-gray-500 pt-1">Thresholds must be less than Total Time, and T2 must be less than T1.</p>
+        </div>
+
+
+        <!-- Color Selectors -->
+        <div class="space-y-4 pt-4 border-t">
+            <h3 class="text-lg font-bold text-gray-700">Custom Colors</h3>
+
+            <!-- T1 Solid Fill Color -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">T1 Color</label>
+                <select id="t1-solid-color-select" 
+                        class="w-full p-2 border rounded-lg text-sm shadow-sm focus:ring-blue-500 uppercase bg-white text-gray-900">
+                    <option value="#f59e0b" selected>Amber (Default)</option>
+                    <option value="#3b82f6">Blue</option>
+                    <option value="#10b981">Green</option>
+                    <option value="#8b5cf6">Purple</option>
+                </select>
+            </div>
+
+            <!-- T2 Flashing Color -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">T2 Color</label>
+                <select id="t2-flash-color-select"
+                        class="w-full p-2 border rounded-lg text-sm shadow-sm focus:ring-blue-500 uppercase bg-white text-gray-900">
+                    <option value="#ef4444" selected>Red (Default)</option>
+                    <option value="#fbbf24">Yellow</option>
+                    <option value="#3b82f6">Blue</option>
+                    <option value="#10b981">Green</option>
+                    <option value="#8b5cf6">Purple</option>
+                </select>
+            </div>
+
+            <p class="text-xs text-gray-500 pt-1">
+                <span class="font-semibold">Note:</span> The initial (full) progress bar color is fixed as **Green**.
+            </p>
+        </div>
+        
+        <!-- Timer Controls (Panel buttons, synced with top buttons) -->
+        <div class="flex flex-col space-y-3 pt-4 border-t">
+            <button id="start-btn"
+                    class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg shadow-lg transition duration-150 transform">
+                Start
+            </button>
+            <button id="pause-btn" disabled
+                    class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-lg shadow-lg transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+                Pause
+            </button>
+            <button id="reset-btn"
+                    class="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-lg shadow-lg transition duration-150">
+                Reset
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- State Variables ---
+        let initialTimeSeconds = 12 * 60; // Set to 12 minutes (720s)
+	let timeRemaining = initialTimeSeconds;
+	let timerInterval = null;
+	let isRunning = false;
+	let t1Threshold = 2 * 60; // Set to 2 minutes (120s)
+	let t2Threshold = 30; // Set to 30 seconds
+        
+        let currentFontSizeVw = 15;
+        const FONT_SIZE_STEP = 2;
+        const MIN_FONT_SIZE = 5;
+        const MAX_FONT_SIZE = 30;
+
+        // --- DOM Elements ---
+        const root = document.documentElement;
+        const bodyElement = document.getElementById('body-element');
+        const mainTimeDisplay = document.getElementById('main-time-display');
+        const progressFill = document.getElementById('progress-fill');
+        const t1Marker = document.getElementById('t1-marker');
+        const t2Marker = document.getElementById('t2-marker');
+        const t1Label = document.getElementById('t1-label');
+        const t2Label = document.getElementById('t2-label');
+        const progressBarContainer = document.getElementById('progress-bar-container'); // Used for drag bounds
+        const messageBox = document.getElementById('message-box');
+
+        // Controls
+        const setupPanel = document.getElementById('setup-panel');
+        const toggleSetupBtn = document.getElementById('toggle-setup-btn');
+        const closeSetupBtn = document.getElementById('close-setup-btn');
+        const increaseFontBtn = document.getElementById('increase-font-btn');
+        const decreaseFontBtn = document.getElementById('decrease-font-btn');
+
+        // Time Inputs
+        const totalMinInput = document.getElementById('total-min-input');
+        const totalSecInput = document.getElementById('total-sec-input');
+        const t1MinInput = document.getElementById('t1-min-input');
+        const t1SecInput = document.getElementById('t1-sec-input');
+        const t2MinInput = document.getElementById('t2-min-input');
+        const t2SecInput = document.getElementById('t2-sec-input');
+        
+        // Color Selectors
+        const t1SolidColorSelect = document.getElementById('t1-solid-color-select');
+        const t2FlashColorSelect = document.getElementById('t2-flash-color-select');
+
+        // Buttons (Panel and Top are synced)
+        const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const topStartBtn = document.getElementById('top-start-btn');
+        const topPauseBtn = document.getElementById('top-pause-btn');
+        const topResetBtn = document.getElementById('top-reset-btn');
+
+
+        // --- Utility Functions ---
+
+        /**
+         * Clamps a number between a min and max value.
+         */
+        function clamp(num, min, max) {
+            return Math.max(min, Math.min(num, max));
+        }
+
+        /**
+         * Converts total seconds into MM:SS format. Uses '+' for overtime (negative totalSeconds).
+         */
+        function formatTime(totalSeconds) {
+            const absSeconds = Math.abs(totalSeconds);
+            // Use '+' for overtime (negative totalSeconds) and empty string otherwise
+            const sign = totalSeconds < 0 ? "+" : ""; 
+            const minutes = Math.floor(absSeconds / 60);
+            const seconds = absSeconds % 60;
+            return `${sign}${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+        
+        /**
+         * Parses minute and second inputs into total seconds, clamping values.
+         */
+        function parseInputToSeconds(minInput, secInput, maxMins = 99, maxSecs = 59) {
+            let minutes = parseInt(minInput.value) || 0;
+            let seconds = parseInt(secInput.value) || 0;
+
+            minutes = clamp(minutes, 0, maxMins);
+            seconds = clamp(seconds, 0, maxSecs);
+
+            minInput.value = minutes;
+            secInput.value = String(seconds).padStart(2, '0');
+
+            return (minutes * 60) + seconds;
+        }
+
+        /**
+         * Reads, validates, and updates all time settings from input fields.
+         */
+        function updateConfiguration() {
+            // 1. Update Total Time
+            let newInitialTime = parseInputToSeconds(totalMinInput, totalSecInput);
+            
+            // 2. Read T1 and T2
+            let newT1 = parseInputToSeconds(t1MinInput, t1SecInput);
+            let newT2 = parseInputToSeconds(t2MinInput, t2SecInput);
+            
+            // Ensure T1 <= Total Time and T2 <= T1
+            newT1 = clamp(newT1, newT2, newInitialTime);
+            newT2 = clamp(newT2, 0, newT1);
+            
+            // 3. Update State
+            initialTimeSeconds = newInitialTime;
+            t1Threshold = newT1;
+            t2Threshold = newT2;
+            
+            // 4. Update Inputs to reflect clamped values
+            syncSecondsToInputs(t1Threshold, t1MinInput, t1SecInput);
+            syncSecondsToInputs(t2Threshold, t2MinInput, t2SecInput);
+            
+            // The time remaining must also be clamped if the total time was reduced
+            timeRemaining = clamp(timeRemaining, -3600, initialTimeSeconds);
+            
+            // 5. Update Color variables and Marker colors 
+            const t1Color = t1SolidColorSelect.value;
+            const t2Color = t2FlashColorSelect.value;
+            
+            // Update CSS variables
+            root.style.setProperty('--t1-solid-color', t1Color);
+            root.style.setProperty('--t2-flash-color', t2Color);
+
+            // Update marker colors
+            t1Marker.style.backgroundColor = t1Color; // T1 marker shows the T1 color
+            t2Marker.style.backgroundColor = t2Color; // T2 marker shows the T2 color
+            
+            updateThresholdMarkers();
+            updateDisplay();
+        }
+        
+        /**
+         * Syncs total seconds back to M:S input fields.
+         */
+        function syncSecondsToInputs(totalSeconds, minInput, secInput) {
+            minInput.value = Math.floor(totalSeconds / 60);
+            secInput.value = String(totalSeconds % 60).padStart(2, '0');
+        }
+
+        // --- Timer Core Logic ---
+        
+        /**
+         * Clears all flashing effects on the body and text.
+         */
+        function clearFlashEffects() {
+            mainTimeDisplay.classList.remove('flash-ot-fast', 'sharp-flash-slow', 'sharp-flash-fast');
+        }
+
+        /**
+         * Dynamically positions the TIME EXPIRED message above the timer.
+         */
+        function positionMessageBox() {
+            const timerRect = mainTimeDisplay.getBoundingClientRect();
+            const messageRect = messageBox.getBoundingClientRect();
+            const topOffset = timerRect.top - messageRect.height - 20; // 20px padding above timer
+            
+            // Ensure the message box is high up but not interfering with top controls (top: 4)
+            messageBox.style.top = `${clamp(topOffset, 60, window.innerHeight / 2 - timerRect.height / 2)}px`;
+        }
+
+
+        /**
+         * Updates the timer display, progress bar, and color state.
+         */
+        function updateDisplay() {
+            mainTimeDisplay.textContent = formatTime(timeRemaining);
+
+            let newTimerColor = root.style.getPropertyValue('--default-light-text'); // Default text color (White)
+            let progressPercent = 0;
+
+            // Clear flashing effects initially
+            clearFlashEffects();
+            
+            // Ensure message box is hidden unless in overtime
+            messageBox.style.display = 'none';
+
+            if (timeRemaining > 0) {
+                // Time-to-Position Mapping: 0s (Left) -> initialTimeSeconds (Right)
+                progressPercent = (timeRemaining / initialTimeSeconds) * 100;
+                
+                // --- PROGRESS FILL COLOR AND FONT LOGIC ---
+                let fillBg; 
+                
+                if (timeRemaining <= t2Threshold) {
+                    // T2 >= T > 0: Use T2 Flash Color (Progress Fill) + Fast FONT Flash
+                    fillBg = root.style.getPropertyValue('--t2-flash-color'); 
+                    mainTimeDisplay.classList.add('sharp-flash-fast');
+
+                } else if (timeRemaining <= t1Threshold) {
+                    // T1 >= T > T2: Use T1 Solid Color (Progress Fill) + Slow FONT Flash
+                    fillBg = root.style.getPropertyValue('--t1-solid-color'); 
+                    mainTimeDisplay.classList.add('sharp-flash-slow');
+
+                } else {
+                    // Default: T > T1: Use Fixed Green (Progress Fill) + No Flash
+                    fillBg = root.style.getPropertyValue('--default-green-fill'); 
+                }
+                progressFill.style.backgroundColor = fillBg;
+                
+                // Set background to black (default)
+                root.style.setProperty('--bg-color', '#000000');
+                
+                // Set text color to white (default)
+                root.style.setProperty('--timer-color', newTimerColor);
+                
+            } else {
+                // Overtime: Black Background (default), Red Flashing Text (Sharp, Fast OT)
+                progressPercent = 0;
+                
+                // Background is already black, just ensuring the variable is set
+                root.style.setProperty('--bg-color', '#000000'); 
+                
+                // Set timer text color to white anchor for flash
+                root.style.setProperty('--timer-color', root.style.getPropertyValue('--default-light-text')); 
+
+                // Show and style TIME EXPIRED message
+                messageBox.style.display = 'block';
+                positionMessageBox();
+
+                mainTimeDisplay.classList.add('flash-ot-fast');
+            }
+
+            // Update Progress Bar
+            progressFill.style.width = `${clamp(progressPercent, 0, 100)}%`;
+            updateThresholdMarkers(); 
+            updateControlButtons(); // Update button state after display update
+        }
+
+        /**
+         * Calculates and updates the position and labels of the T1 and T2 markers.
+         */
+        function updateThresholdMarkers() {
+            // Markers are always visible if time is set.
+            const markersVisible = initialTimeSeconds > 0;
+            
+            t1Marker.classList.toggle('hidden', !markersVisible || t1Threshold <= 0);
+            t2Marker.classList.toggle('hidden', !markersVisible || t2Threshold <= 0);
+            t1Label.classList.toggle('hidden', !markersVisible || t1Threshold <= 0);
+            t2Label.classList.toggle('hidden', !markersVisible || t2Threshold <= 0);
+
+            if (!markersVisible || initialTimeSeconds === 0) return;
+
+            // Position is proportional to time remaining (0s=Left, Max Time=Right)
+            const t1Percent = (t1Threshold / initialTimeSeconds) * 100;
+            const t2Percent = (t2Threshold / initialTimeSeconds) * 100;
+
+            t1Marker.style.left = `${clamp(t1Percent, 0, 100)}%`;
+            t2Marker.style.left = `${clamp(t2Percent, 0, 100)}%`;
+
+            t1Label.style.left = t1Marker.style.left;
+            t1Label.textContent = `T1: ${formatTime(t1Threshold)}`;
+            
+            t2Label.style.left = t2Marker.style.left;
+            t2Label.textContent = `T2: ${formatTime(t2Threshold)}`;
+        }
+
+
+        /**
+         * Main timer logic: decrement time and update display.
+         */
+        function tick() {
+            timeRemaining--;
+            updateDisplay();
+            if (timeRemaining < -3600) { // Stop after 1 hour of overtime
+                clearInterval(timerInterval);
+                isRunning = false;
+                updateControlButtons();
+            }
+        }
+        
+        /**
+         * Updates the state of the control buttons based on the timer status.
+         */
+        function updateControlButtons() {
+            // Reset button is always active per requirement
+            topResetBtn.disabled = resetBtn.disabled = false;
+
+            if (isRunning) {
+                // RUNNING: Start/Resume disabled, Pause enabled
+                topStartBtn.disabled = startBtn.disabled = true;
+                topPauseBtn.disabled = pauseBtn.disabled = false;
+                
+                // Set text to Pause
+                topPauseBtn.textContent = pauseBtn.textContent = 'Pause';
+                topStartBtn.textContent = startBtn.textContent = 'Resume'; // Should be disabled, but keep text in sync
+                
+            } else {
+                // PAUSED/STOPPED/RESET: Start/Resume enabled, Pause disabled
+                topStartBtn.disabled = startBtn.disabled = false;
+                topPauseBtn.disabled = pauseBtn.disabled = true;
+
+                if (timeRemaining < initialTimeSeconds) {
+                    // Timer has run or is in overtime -> Show RESUME
+                    topStartBtn.textContent = startBtn.textContent = 'Resume';
+                } else {
+                    // Timer is at initial time (Reset state) -> Show START
+                    topStartBtn.textContent = startBtn.textContent = 'Start';
+                }
+            }
+        }
+
+
+        /**
+         * Starts the countdown timer.
+         */
+        function startTimer() {
+            if (isRunning) {
+                pauseTimer(); // If running, toggle to pause
+                return;
+            }
+
+            updateConfiguration();
+            if (initialTimeSeconds <= 0 && timeRemaining <= 0) {
+                messageBox.textContent = "Set a total time greater than zero.";
+                return;
+            }
+
+            isRunning = true;
+            timerInterval = setInterval(tick, 1000);
+            setupPanel.classList.remove('open');
+            
+            // Disable dragging visually
+            t1Marker.style.cursor = t2Marker.style.cursor = 'not-allowed';
+            updateThresholdMarkers();
+            updateControlButtons(); // Update button state
+        }
+
+        /**
+         * Pauses the countdown timer.
+         */
+        function pauseTimer() {
+            if (!isRunning) return;
+            isRunning = false;
+            clearInterval(timerInterval);
+            
+            // Re-enable dragging visually
+            t1Marker.style.cursor = t2Marker.style.cursor = 'grab';
+            
+            // Reset background/text colors to solid state on pause
+            clearFlashEffects();
+            updateDisplay(); // Update display and buttons
+        }
+
+        /**
+         * Stops the timer and resets the state.
+         */
+        function resetTimer() {
+            clearInterval(timerInterval);
+            isRunning = false;
+            
+            // Re-read initial time from inputs
+            updateConfiguration();
+            timeRemaining = initialTimeSeconds;
+
+            // Re-enable dragging visually
+            t1Marker.style.cursor = t2Marker.style.cursor = 'grab';
+
+            // Reset UI
+            messageBox.style.display = 'none';
+            clearFlashEffects();
+            
+            // Set explicit base colors on reset (Dark Mode)
+            root.style.setProperty('--timer-color', root.style.getPropertyValue('--default-light-text'));
+            root.style.setProperty('--bg-color', '#000000'); // Solid Black BG
+            
+            applyFontSize(); // Re-apply font size (and position message box)
+            
+            updateDisplay(); // Update display and buttons
+        }
+
+        // --- Dragging Logic (Non-Inverted Axis) ---
+        let activeMarker = null;
+
+        function startDrag(e) {
+            e.preventDefault();
+            if (isRunning || initialTimeSeconds === 0) return;
+
+            // Use e.target for marker identification
+            activeMarker = e.target;
+            activeMarker.style.cursor = 'grabbing';
+            document.addEventListener('mousemove', dragMove);
+            document.addEventListener('mouseup', dragEnd);
+            document.addEventListener('touchmove', dragMove);
+            document.addEventListener('touchend', dragEnd);
+        }
+
+        function dragMove(e) {
+            if (!activeMarker) return;
+
+            // Use clientX for mouse, or first touch clientX for touch
+            const clientX = e.clientX || e.touches[0].clientX;
+            const containerRect = progressBarContainer.getBoundingClientRect();
+
+            // 1. Calculate the raw X position relative to the container's left edge
+            const newX = clamp(clientX - containerRect.left, 0, containerRect.width);
+
+            // 2. Map the X position (pixels) back to time (seconds)
+            let newTimeValue = Math.round((newX / containerRect.width) * initialTimeSeconds);
+
+            let newT1 = t1Threshold;
+            let newT2 = t2Threshold;
+
+            if (activeMarker.id === 't1-marker') {
+                // T1 must be >= T2 and <= Max Time
+                newT1 = clamp(newTimeValue, t2Threshold, initialTimeSeconds);
+                t1Threshold = newT1;
+                syncSecondsToInputs(t1Threshold, t1MinInput, t1SecInput);
+            } else if (activeMarker.id === 't2-marker') {
+                // T2 must be <= T1 and >= 0
+                newT2 = clamp(newTimeValue, 0, t1Threshold);
+                t2Threshold = newT2;
+                syncSecondsToInputs(t2Threshold, t2MinInput, t2SecInput);
+            }
+
+            // This update handles the visual change on the progress bar and labels
+            updateThresholdMarkers();
+        }
+
+        function dragEnd() {
+            if (!activeMarker) return;
+            activeMarker.style.cursor = 'grab';
+            activeMarker = null;
+            document.removeEventListener('mousemove', dragMove);
+            document.removeEventListener('mouseup', dragEnd);
+            document.removeEventListener('touchmove', dragMove);
+            document.removeEventListener('touchend', dragEnd);
+            
+            // Ensure inputs are synced and constraints are finalized
+            updateConfiguration();
+        }
+
+        // --- UI Interactions ---
+        
+        function applyFontSize() {
+            mainTimeDisplay.style.fontSize = `${currentFontSizeVw}vw`;
+            // Position message box whenever font size is applied (since timer moves)
+            if (messageBox.style.display !== 'none') {
+                positionMessageBox();
+            }
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // --- Initialization and Event Listeners ---
+
+        function setupEventListeners() {
+            // Timer Control Buttons
+            startBtn.addEventListener('click', startTimer);
+            pauseBtn.addEventListener('click', pauseTimer);
+            resetBtn.addEventListener('click', resetTimer);
+            topStartBtn.addEventListener('click', startTimer);
+            topPauseBtn.addEventListener('click', pauseTimer);
+            topResetBtn.addEventListener('click', resetTimer);
+
+            // Settings Panel Toggle
+            toggleSetupBtn.addEventListener('click', () => setupPanel.classList.add('open'));
+            closeSetupBtn.addEventListener('click', () => setupPanel.classList.remove('open'));
+            
+            // Fullscreen Toggle
+            mainTimeDisplay.addEventListener('click', toggleFullScreen);
+            document.addEventListener('fullscreenchange', () => {
+                bodyElement.classList.toggle('fullscreen', !!document.fullscreenElement);
+                // Reposition message on fullscreen change
+                if (messageBox.style.display !== 'none') {
+                    setTimeout(positionMessageBox, 100); // Small delay for screen resize/reflow
+                }
+            });
+
+            // Window resize handler for dynamic positioning
+            window.addEventListener('resize', () => {
+                applyFontSize(); // Recalculates vw units
+                if (messageBox.style.display !== 'none') {
+                    positionMessageBox();
+                }
+            });
+
+
+            // Font Size Controls
+            increaseFontBtn.addEventListener('click', () => {
+                currentFontSizeVw = clamp(currentFontSizeVw + FONT_SIZE_STEP, MIN_FONT_SIZE, MAX_FONT_SIZE);
+                applyFontSize();
+            });
+            decreaseFontBtn.addEventListener('click', () => {
+                currentFontSizeVw = clamp(currentFontSizeVw - FONT_SIZE_STEP, MIN_FONT_SIZE, MAX_FONT_SIZE);
+                applyFontSize();
+            });
+
+            // Input Fields and Color Selectors
+            [totalMinInput, totalSecInput, t1MinInput, t1SecInput, t2MinInput, t2SecInput, t1SolidColorSelect, t2FlashColorSelect].forEach(input => {
+                input.addEventListener('change', updateConfiguration);
+            });
+
+            // Threshold Marker Dragging
+            t1Marker.addEventListener('mousedown', startDrag);
+            t2Marker.addEventListener('mousedown', startDrag);
+            // Handling touch events explicitly
+            t1Marker.addEventListener('touchstart', startDrag);
+            t2Marker.addEventListener('touchstart', startDrag);
+            // Prevent default browser drag interaction
+            [t1Marker, t2Marker].forEach(m => m.ondragstart = () => false);
+
+            // Initial setup
+            updateConfiguration();
+            resetTimer();
+        }
+
+        window.onload = setupEventListeners;
+
+    </script>
+</body>
+</html>
